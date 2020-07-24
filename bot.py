@@ -147,7 +147,7 @@ def log(info):
 		Log an error that occurred while the bot ran.
 	"""
 	f = open('error.log', 'a')
-	f.write(info)
+	f.write(info + '\n')
 	f.close()
 
 
@@ -344,7 +344,7 @@ async def on_raw_reaction_remove(payload):
 
 async def on_command_error(ctx, exc):  
 
-	log("\'%s\' by %s : %s" % (ctx.message.content, ctx.message.author, type(exc))))
+	log("\'%s\' by %s : %s" % (ctx.message.content, ctx.message.author, type(exc)))
 	if type(exc) == discord.ext.commands.errors.MissingRequiredArgument:
 		await ctx.channel.send("`Please provide the proper format for this command. Check .help for formatting.`")
 	elif type(exc) == discord.ext.commands.errors.CommandNotFound:
@@ -455,7 +455,7 @@ async def top(ctx, *args):
 
 	for row in cursor.fetchall():
 		if (row[3] != 0 or row[4] != 0): 
-			s += "|{:<32}|{:<5}|{:<5}|{:<5}|{:<5}|\n".format(row[1], row[4], row[2], row[3], 
+			s += "|{:<32}|{:<5}|{:<5}|{:<5}|{:<5.3f}|\n".format(row[1], row[4], row[2], row[3], 
 				(row[2] / (row[2] + row[3])))
 			s += '·' + '-' * 32 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
 
@@ -526,8 +526,8 @@ async def update(ctx):
 		try:
 			await add_user(db, cursor, member)
 		except sqlite3.IntegrityError:
-			cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ? LIMIT 1", (member.name, member.id))
-			print("%'s name was updated. (id = %d)" % (member.name, member.id))
+			cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (member.name, member.id))
+			print("%s's name was updated. (id = %d)" % (member.name, member.id))
 			pass
 
 	db.commit()
@@ -594,13 +594,18 @@ async def limit(ctx, arg):
 
 	s = "```The following users have below a %s like ratio:\n" % (limit)
 	s += '=' * 59 + '\n'
+	flag = False
 
 	for row in cursor.fetchall():
 		if row[3] != 0 or row[4] != 0:
 			ratio = (row[2] / (row[2] + row[3]))
 			#print("ratio: %s\nlimit: %s\n" % (ratio, limit))
 			if ratio <= limit:
-				s += "{:<32} | {:>3}% upvoted, {:>4} total\n".format(row[1], int(round(ratio * 100)), row[2] + row[3])
+				flag = True
+				s += "{:<32} | {:>3}% upvoted, {:>4} posted\n".format(row[1], int(round(ratio * 100)), row[2] + row[3])
+
+	if not flag:
+		s += "There were no users with ratios found below this threshold.\n"
 
 	s += '=' * 59 + "```"
 
