@@ -66,6 +66,7 @@ client.remove_command('help')
 
 
 async def init_db():
+
 	"""
 		Initialize the database.
 
@@ -77,6 +78,7 @@ async def init_db():
 		# 4: score 				int
 
 	"""
+
 	connection, cursor = get_db_and_cursor()
 	init_command = """CREATE TABLE IF NOT EXISTS users(	
 														user_id INTEGER PRIMARY KEY,
@@ -101,7 +103,9 @@ async def init_db():
 
 
 def get_db_and_cursor():
+
 	""" Create and return a database connection to votes.db """
+
 	connection = sqlite3.connect('votes.db')
 	cursor = connection.cursor()
 	return [connection, cursor]
@@ -112,7 +116,9 @@ def get_db_and_cursor():
 
 
 async def add_user(db, cursor, member):
+
 	""" Add a user to the database. """
+
 	if member.bot:
 		return
 	cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score) VALUES (?, ?, 0, 0, 0)", (member.id, member.name))
@@ -125,11 +131,13 @@ async def add_user(db, cursor, member):
 
 
 def get_result_string(info):
+
 	""" 
 		Return a string that represents a table row, prettified.
 		Takes tuple
 		Returns string
 	"""
+
 	s = ""
 	s += "============ " + str(info[1]) + " ============ \n"
 	s += "Total: " + str(info[4]) + '\n'
@@ -143,9 +151,11 @@ def get_result_string(info):
 
 
 def log(info):
+
 	""" 
 		Log an error that occurred while the bot ran.
 	"""
+
 	f = open('error.log', 'a')
 	f.write(info + '\n')
 	f.close()
@@ -260,8 +270,13 @@ async def on_raw_reaction_add(payload):
 		message = await channel.fetch_message(payload.message_id)
 		author = message.author
 
-		if author.bot or author.id == member.id or len(message.attachments) == 0:
+		if author.id == member.id:
+			await message.remove_reaction(payload.emoji, member)
 			return
+
+		if author.bot or len(message.attachments) == 0:
+			return
+
 
 		if payload.emoji.name == '1Upvote':
 
@@ -375,17 +390,18 @@ async def on_command_error(ctx, exc):
 @client.command(aliases = ['score', 'show', 'votes'])
 
 async def stats(ctx, arg):
+
 	"""
 		Display the upvotes, downvotes, and stats of an individual.
 		Usage: .stats [user id] | .stats me
 	"""
+
 	db, cursor = get_db_and_cursor()
 	if arg == "me":
 		arg = ctx.message.author.id
 
 	cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (arg,))
 	result = cursor.fetchone()
-	#print(result)
 
 	if result == None:
 		s = "No such user found."
@@ -468,7 +484,11 @@ async def top(ctx, *args):
 @client.command(pass_context = True, aliases = ['helpme'])
 
 async def help(ctx):
-	""" List the available commands to general users. """
+
+	""" 
+		List the available commands to general users. 
+	"""
+
 	embed = discord.Embed(
 		colour = discord.Colour.blue()
 	)
@@ -500,11 +520,14 @@ async def help(ctx):
 @commands.has_permissions(administrator = True)
 
 async def kill(ctx):
-	""" Kill all bot instances. 
+
+	""" 
+		Kill all bot instances. 
 
 		If you are experiencing multiple messages or other hiccups, use this command 
 		and then restart the bot. 
 	"""
+
 	await ctx.channel.send("`Bot is being terminated...`")
 	await client.logout()
 	print("Bot was terminated.")
@@ -519,7 +542,10 @@ async def kill(ctx):
 
 async def update(ctx):
 
-	""" Update the database on call. """
+	""" 
+		Update the database on call. 
+	"""
+
 	members = ctx.guild.members
 	db, cursor = get_db_and_cursor()
 	for member in members:
@@ -541,12 +567,13 @@ async def update(ctx):
 @commands.has_permissions(administrator = True)
 
 async def show_db(ctx, *args):
+
 	"""
 		Show the contents of the entire database.
 		If no arguments are provided, print the db in the python console.
 		Otherwise, create/overwrite the file specified by the first argument.
-
 	"""
+
 	if len(args) > 0:
 		f = open(args[0], "w")
 
@@ -575,10 +602,11 @@ async def show_db(ctx, *args):
 @commands.has_permissions(administrator = True)
 
 async def limit(ctx, arg):
-	"""
-		Show the contents of the entire database.
 
 	"""
+		Show the contents of the entire database.
+	"""
+
 	try:
 		limit = float(arg)
 	except ValueError:
@@ -621,9 +649,11 @@ async def limit(ctx, arg):
 @commands.has_permissions(administrator = True)
 
 async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_yes_i_know_what_this_means(ctx, arg):
+
 	"""
 		If you have any data, PLEASE BACK IT UP!!!!
 	"""
+
 	connection, cursor = get_db_and_cursor()
 	cursor.execute("DELETE FROM users")
 	cursor.execute("SELECT * FROM users")
@@ -638,7 +668,11 @@ async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_ye
 @commands.has_permissions(administrator = True)
 
 async def adminhelp(ctx):
-	""" List the commands available to admins. """
+
+	""" 
+		List the commands available to admins. 
+	"""
+
 	embed = discord.Embed(
 		colour = discord.Colour.blue()
 	)
