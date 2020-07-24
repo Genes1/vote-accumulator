@@ -3,18 +3,50 @@ This is a bot meant to serve as a vote accumulator. Votes are defined as reactio
 
 Features:
 	- track the upvotes, downvotes, and cumulative score performed while the bot is up with an sqlite db
-	- show your score and ratio
-	- TODO display the top x scores 
 
-Considerations:
+	General commands:
+		- show any user's scores and ratio
+		- display the top x users by score, upvotes, downvotes 
+
+	Admin commands:
+		- kill running bot instances
+		- display users with lower upvote ratios than one that is chosen
+		- force the database to sync with all member info on the server
+		- write the database to the console or a specified file
+		- clear the database records
+
+
+Considerations made while building:
 	- bot votes are not counted
 	- votes of users on their own posts are not counted
-	- downvotes cannot go below zero
+	- # of votes cannot go below zero
+	- an attachment has to be present in the message for votes to count
+	- joining the server adds to db, leaving the server removes from the db
+	- namechanges are tracked and update automatically
+	- the db is automatically updated when initialized (at the start of a run)
 
 Operation notes:
 	- terminate (.kill) and restart the bot if you are seeing multiple messages per command
-	- .help for help
+		- multiple bot instances WILL CAUSE RACE CONDITIONS AND UNWANTED DB MUTATIONS. Restart under suspicion of multiple instances
 	- some commands look for administrator privileges, make sure you have them
+	- make sure you have your token in a token.txt file in the same directory as the bot.py script
+	- you better know what you're doing if you're using the long command
+	- the bot is ONLY tracking when it is online -- only changes are detected. messages are not stored
+	- *error.log* will be automatically made and remade whenever it is needed to log an error
+	- *votes.db* will similarly regenerate when no instance of it is detected
+
+Steps to operate:
+	0. Install python 3 (download/install) and discord.py (pip install discord.py). 
+		- Ensure you can run python from the commmand line (e.g. 'python --version' at the command prompt gives you a version)
+		- If it does not work, add your python directory to your PATH environment variable
+	1. Navigate to the folder you will host the bot in
+	2. Drop the *bot.py* script in this directory
+	2. Generate your bot token, and place it into a new file called *token.txt* in this directory
+	3. At this point, you will be ready to start the bot. Open your command prompt (windows + R, 'cmd')
+	4. Navigate to the directory with bot.py (via cd [directory/path/here])
+	5. Run the bot script with 'python bot.py' in the cmd. The bot should go online and start updating the database
+	6. Congrats! You can now run the bot's custom commands. They are prefixed with a period ('.'). Check '.help' for more info
+	
 
 """
 
@@ -32,30 +64,8 @@ client.remove_command('help')
 
 
 
-async def add_user(db, cursor, member):
-	""" Add a user to the database. """
-	if member.bot:
-		return
-	cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score) VALUES (?, ?, 0, 0, 0)", (member.id, member.name))
-	print("joined: %s %s" % (member.name, member.id))
-	db.commit()
-	#db.close()
 
-
-	
-
-
-def get_db_and_cursor():
-	""" Create and return a database connection to votes.db """
-	connection = sqlite3.connect('votes.db')
-	cursor = connection.cursor()
-	return [connection, cursor]
-
-
-
-
-
-def init_db():
+async def init_db():
 	"""
 		Initialize the database.
 
@@ -71,7 +81,7 @@ def init_db():
 	init_command = """CREATE TABLE IF NOT EXISTS users(	
 														user_id INTEGER PRIMARY KEY,
 	 													user_name TEXT, 
-	 													pvotes_earned INTEGER, 
+	 													upvotes_earned INTEGER, 
 	 													downvotes_earned INTEGER, 
 	 													score INTEGER
 	 												)"""
@@ -87,6 +97,30 @@ def init_db():
 
 
 
+
+
+
+def get_db_and_cursor():
+	""" Create and return a database connection to votes.db """
+	connection = sqlite3.connect('votes.db')
+	cursor = connection.cursor()
+	return [connection, cursor]
+
+
+
+
+
+
+async def add_user(db, cursor, member):
+	""" Add a user to the database. """
+	if member.bot:
+		return
+	cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score) VALUES (?, ?, 0, 0, 0)", (member.id, member.name))
+	print("joined: %s %s" % (member.name, member.id))
+	db.commit()
+
+
+	
 
 
 
@@ -106,6 +140,18 @@ def get_result_string(info):
 
 
 
+
+
+def log(info):
+	""" 
+		Log an error that occurred while the bot ran.
+	"""
+	f = open('error.log', 'a')
+	f.write(info)
+	f.close()
+
+
+
 #--------------------------------------------------------------------------------------------------------
 
 
@@ -114,7 +160,7 @@ def get_result_string(info):
 
 
 
-init_db()
+
 
 
 
@@ -129,9 +175,11 @@ init_db()
 
 async def on_ready():
 
+	await init_db()
 	members = client.get_all_members()
 	db, cursor = get_db_and_cursor()
 	print("Updating DB on startup...")
+
 	for member in members:
 		try:
 			await add_user(db, cursor, member)
@@ -139,11 +187,12 @@ async def on_ready():
 			cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (member.name, member.id))
 			print("%s's name was updated. (id = %d)" % (member.name, member.id))
 			pass
-			#
+
 	print("DB was automatically updated.\n")
 	db.commit()
 
 	print("The count bot is awaiting reactions.")
+
 
 
 
@@ -159,6 +208,7 @@ async def on_member_join(member):
 
 	db, cursor = get_db_and_cursor()
 	await add_user(db, cursor, member)
+
 
 
 
@@ -180,6 +230,7 @@ async def on_member_remove(member):
 
 
 
+
 @client.event
 
 async def on_user_update(before, after):
@@ -189,7 +240,7 @@ async def on_user_update(before, after):
 
 	db, cursor = get_db_and_cursor()
 	cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (after.name, before.id,))
-	#print("Username change detected: %s -> %s" % (before.name, after.name))
+
 
 
 
@@ -240,6 +291,7 @@ async def on_raw_reaction_add(payload):
 
 
 
+
 @client.event
 
 async def on_raw_reaction_remove(payload):
@@ -262,12 +314,11 @@ async def on_raw_reaction_remove(payload):
 			cursor.execute("UPDATE users SET score = score - 1 WHERE user_id = ?", (author.id,))
 			result = cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (author.id,))
 			info = result.fetchone()
-			#print("Score decreased (up removed)")
+
 			if info == None:
 				print("No results were found for the given author (%s). Consider updating the database." % (author.name))
 			else:
 				db.commit()
-				#print(get_result_string(info))
 
 	elif payload.emoji.name == '1Downvote':
 
@@ -278,12 +329,12 @@ async def on_raw_reaction_remove(payload):
 			cursor.execute("UPDATE users SET score = score + 1 WHERE user_id = ?", (author.id,))
 			result = cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (author.id,))
 			info = result.fetchone()
-			#print("Score increased (down removed)")
+
 			if info == None:
 				print("No results were found for the given author (%s). Consider updating the database." % (author.name))
 			else:
 				db.commit()
-				#print(get_result_string(info))
+
 
 
 
@@ -293,9 +344,9 @@ async def on_raw_reaction_remove(payload):
 
 async def on_command_error(ctx, exc):  
 
-	print("\'%s\' by %s : %s" % (ctx.message.content, ctx.message.author, type(exc)))
+	log("\'%s\' by %s : %s" % (ctx.message.content, ctx.message.author, type(exc))))
 	if type(exc) == discord.ext.commands.errors.MissingRequiredArgument:
-		await ctx.channel.send("`Please provide the proper format for this command. Check .helpme for formatting.`")
+		await ctx.channel.send("`Please provide the proper format for this command. Check .help for formatting.`")
 	elif type(exc) == discord.ext.commands.errors.CommandNotFound:
 		await ctx.channel.send("`No such command exists.`")
 	elif type(exc) == discord.ext.commands.errors.MissingPermissions:
@@ -346,7 +397,9 @@ async def stats(ctx, arg):
 		s += "Downvotes: " + str(result[3]) + '\n'
 
 
+
 	await ctx.channel.send('```' + s + '```')
+
 
 
 
@@ -380,7 +433,7 @@ async def top(ctx, *args):
 
 	if len(args) == 2:
 		if args[1] == '' or args[1] == 'score':
-			k = "score"
+			pass
 		elif args[1] == 'up':
 			k = "upvotes_earned"
 		elif args[1] == 'down':	
@@ -396,16 +449,14 @@ async def top(ctx, *args):
 
 	cursor.execute(q, (num,))
 	s = "{:^58}\n".format("top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k))
-	#s += '_' * 64 + '\n'
 	s += ' ' + '_' * 56 + ' \n'
 	s +=  "|{:^32}|{:^5}|{:^5}|{:^5}|{:^5}|\n".format("Name", "Score", "Up", "Down", "Ratio")
 	s += '·' + '-' * 32 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
 
-	# {:<8}
 	for row in cursor.fetchall():
 		if (row[3] != 0 or row[4] != 0): 
 			s += "|{:<32}|{:<5}|{:<5}|{:<5}|{:<5}|\n".format(row[1], row[4], row[2], row[3], 
-				(row[3] / (row[3] + row[4])))
+				(row[2] / (row[2] + row[3])))
 			s += '·' + '-' * 32 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
 
 	await ctx.channel.send('```' + s + '```')
@@ -414,7 +465,7 @@ async def top(ctx, *args):
 
 
 
-@client.command(pass_context = True)
+@client.command(pass_context = True, aliases = ['helpme'])
 
 async def help(ctx):
 	""" List the available commands to general users. """
@@ -422,15 +473,15 @@ async def help(ctx):
 		colour = discord.Colour.blue()
 	)
 
-	embed.set_author(name = "Museum Help Service", icon_url = "https://cdn.discordapp.com/attachments/732933150828658689/736083821144965180/imageedit_153_3067097904.png") 						# top left small circle
+	embed.set_author(name = "Museum Help Service", icon_url = "https://cdn.discordapp.com/attachments/732933150828658689/736083821144965180/imageedit_153_3067097904.png") 				# top left small circle
 	#embed.set_image(url = "https://cdn.discordapp.com/attachments/735961470398890084/736071911561363507/yande.re_621327_sample_ikomochi_megane_seifuku_shirt_lift_skirt_lift.jpg") 	# bottom large rect
 	#embed.set_thumbnail(url = "https://cdn.discordapp.com/attachments/722537044353482862/722698539771363328/original_drawn_by_laru__sample-4bbee8bbb28f24ea258c2a257efc3f9e.jpg")		# top right small rect
 
-	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "*.score me* \n*.score [user id]* \n\nShow the stats for the mentioned user.\nEx: `.score 736025037462831256`")
-	embed.add_field(name = ".top", value = "\nalias: [.sort]\n*.top [places]\(1-20)\n[criteria]\(up/down/ratio/score)* \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up, 'down'. Takes on 'score' by default, if left empty.\nEx: `.top 10`\n`.top 5 down`")
+	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
+	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-20) (score/up/down)`\n`.top (1-20)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up, or 'down'. Takes on 'score' by default, if left empty.")
+	embed.add_field(name = "\nLeaving", value = "Leaving the server and rejoining ***WILL WIPE YOUR SCORE.*** For this reason, we can *not* recover voting records of previous visits. This lets us keep the database small and efficient.", inline = False)
 
 	await ctx.channel.send(embed = embed)
-
 
 
 
@@ -462,6 +513,7 @@ async def kill(ctx):
 
 
 
+
 @client.command(aliases = ['sync'])
 @commands.has_permissions(administrator = True)
 
@@ -485,23 +537,92 @@ async def update(ctx):
 
 
 
-
 @client.command(aliases = ['db'])
 @commands.has_permissions(administrator = True)
 
-async def show_db(ctx):
+async def show_db(ctx, *args):
 	"""
 		Show the contents of the entire database.
+		If no arguments are provided, print the db in the python console.
+		Otherwise, create/overwrite the file specified by the first argument.
 
 	"""
+	if len(args) > 0:
+		f = open(args[0], "w")
+
 	connection, cursor = get_db_and_cursor()
 
 	cursor.execute("SELECT * FROM users")
 
-	print('-' * 32)
-	for t in cursor.fetchall():
-		print(get_result_string(t))
-	print('-' * 32)
+	if len(args) == 0:
+		print('\n' + '-' * 32 + '\n')
+		for t in cursor.fetchall():
+			print(get_result_string(t))
+		print('-' * 32 + '\n')
+	else:
+		f.write('\n' + '-' * 32 + '\n')
+		for t in cursor.fetchall():
+			f.write(get_result_string(t))
+		f.write('-' * 32 + '\n')
+		f.close()
+
+
+
+
+
+
+@client.command(aliases = ['lim'])
+@commands.has_permissions(administrator = True)
+
+async def limit(ctx, arg):
+	"""
+		Show the contents of the entire database.
+
+	"""
+	try:
+		limit = float(arg)
+	except ValueError:
+		await ctx.channel.send("`Enter a decimal between as the argument for this command.`")
+		return 
+
+	if limit <= 0.0 and limit >= 1.0:
+		await ctx.channel.send("`Enter a decimal between as the argument for this command.`")
+		return 	
+
+	connection, cursor = get_db_and_cursor()
+	cursor.execute("SELECT * FROM users")
+
+	s = "```The following users have below a %s like ratio:\n" % (limit)
+	s += '=' * 59 + '\n'
+
+	for row in cursor.fetchall():
+		if row[3] != 0 or row[4] != 0:
+			ratio = (row[2] / (row[2] + row[3]))
+			#print("ratio: %s\nlimit: %s\n" % (ratio, limit))
+			if ratio <= limit:
+				s += "{:<32} | {:>3}% upvoted, {:>4} total\n".format(row[1], int(round(ratio * 100)), row[2] + row[3])
+
+	s += '=' * 59 + "```"
+
+	await ctx.channel.send(s)
+
+
+
+
+
+
+
+@client.command()
+@commands.has_permissions(administrator = True)
+
+async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_yes_i_know_what_this_means(ctx, arg):
+	"""
+		If you have any data, PLEASE BACK IT UP!!!!
+	"""
+	connection, cursor = get_db_and_cursor()
+	cursor.execute("DELETE FROM users")
+	cursor.execute("SELECT * FROM users")
+
 
 
 
@@ -512,18 +633,23 @@ async def show_db(ctx):
 @commands.has_permissions(administrator = True)
 
 async def adminhelp(ctx):
-	""" List the available commands to admins. """
+	""" List the commands available to admins. """
 	embed = discord.Embed(
 		colour = discord.Colour.blue()
 	)
 
 	embed.set_author(name = "Museum Help Service [Admin]", icon_url = "https://cdn.discordapp.com/attachments/732933150828658689/736083821144965180/imageedit_153_3067097904.png") 
 
-	embed.add_field(name = ".kill\nalias: [.end, .terminate]", value = "Kill all instances of the bot currently running. Use this before restarting, or if you get multiple bot messages per command.")
-	embed.add_field(name = ".update\nalias: [.update, .sync]", value = "Update the database to have all currently visible users and their usernames.")
-	embed.add_field(name = ".db", value = "Show the full database in the python console.")
+	embed.add_field(name = ".kill\nalias: [.end, .terminate]\n\n", value = "`.kill`\n\nKill all instances of the bot currently running. Use this before restarting, or if you get multiple bot messages per command.")
+	embed.add_field(name = ".limit\nalias: [.lim]", value = "`.limit (0.0 - 1.0)`\n\nDisplay all users with an upvote ratio (up / [up + down]) lower than the one specified.")
+	embed.add_field(name = ".update\nalias: [.sync]", value = "`.update`\n\nUpdate the database to have all currently visible users and their usernames.")
+	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
+	embed.add_field(name = ".destroy_the_database_yes_i_know_what_this_means", value = "`.destroy_the_database_yes_i_know_what_this_means`\n\nDon't do this unless you have a backup.")
 
 	await ctx.channel.send(embed = embed)
+
+
+
 
 
 
