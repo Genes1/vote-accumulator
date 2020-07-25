@@ -60,6 +60,7 @@ client.remove_command('help')
 
 
 
+
 #--------------------------------------- UTILITY FUNCTIONS ---------------------------------------------
 
 
@@ -184,6 +185,9 @@ def log(info):
 @client.event
 
 async def on_ready():
+
+	game = discord.Game(".help | counting votes")
+	await client.change_presence(activity = game)
 
 	await init_db()
 	members = client.get_all_members()
