@@ -411,10 +411,11 @@ async def stats(ctx, arg):
 		s = "No such user found."
 	else:	
 		s = ""
-		s += "============ " + str(result[1]) + " ============ \n"
+		s += "============ " + str(result[1]) + "'s stats ============ \n"
 		s += "Total: " + str(result[4]) + '\n'
 		s += "Upvotes: " + str(result[2]) + '\n'
 		s += "Downvotes: " + str(result[3]) + '\n'
+		s += "% Upvotes: " + str(int(100 * round((result[2] / (result[2] + result[3]))))) + '%\n'
 
 
 
@@ -449,7 +450,7 @@ async def top(ctx, *args):
 		return
 
 
-	k = "score"
+	k = 'score'
 
 	if len(args) == 2:
 		if args[1] == '' or args[1] == 'score':
@@ -468,16 +469,20 @@ async def top(ctx, *args):
 
 
 	cursor.execute(q, (num,))
-	s = "{:^58}\n".format("top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k))
-	s += ' ' + '_' * 56 + ' \n'
-	s +=  "|{:^32}|{:^5}|{:^5}|{:^5}|{:^5}|\n".format("Name", "Score", "Up", "Down", "Ratio")
-	s += '·' + '-' * 32 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
+	s = "{:^63}\n".format("top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k))
+	s += ' ' + '_' * 62 + ' \n'
+	s +=  "|{:^38}|{:^5}|{:^5}|{:^5}|{:^5}|\n".format("Name", "Score", "Up", "Down", "% Up")
+	s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
+	i = 1
+
+	# {:>3}% upvotes, {:>4} votes\n".format(row[1], int(round(ratio * 100))
 
 	for row in cursor.fetchall():
 		if (row[3] != 0 or row[4] != 0): 
-			s += "|{:<32}|{:<5}|{:<5}|{:<5}|{:<5.3f}|\n".format(row[1], row[4], row[2], row[3], 
-				(row[2] / (row[2] + row[3])))
-			s += '·' + '-' * 32 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
+			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:>4}%|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
+				int(100 * round((row[2] / (row[2] + row[3])))))
+			s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
+			i += 1
 
 	await ctx.channel.send('```' + s + '```')
 
@@ -605,38 +610,47 @@ async def show_db(ctx, *args):
 @client.command(aliases = ['lim'])
 @commands.has_permissions(administrator = True)
 
-async def limit(ctx, arg):
+async def limit(ctx, *args):
 
 	"""
-		Show the contents of the entire database.
+		Display users with an upvote ratio lower than the first argument (ratio).
+		Upvote ratio is calculated as up / (up + down).
+		Takes an optional secondary argument, a minimum number of votes for consideration.
 	"""
 
 	try:
-		limit = float(arg)
+		limit = float(args[0])
+		second_arg = False
+		if len(args) > 1:
+			specified_votes = int(args[1])
+			second_arg = True
 	except ValueError:
-		await ctx.channel.send("`Enter a decimal between as the argument for this command.`")
+		await ctx.channel.send("`Please ensure that you have the proper argument types for this command.`")
 		return 
 
 	if limit <= 0.0 and limit >= 1.0:
-		await ctx.channel.send("`Enter a decimal between as the argument for this command.`")
+		await ctx.channel.send("`Enter a decimal 0 <= x <= 1 as the first argument for this command.`")
 		return 	
 
 	connection, cursor = get_db_and_cursor()
 	cursor.execute("SELECT * FROM users")
 
-	s = "```The following users have below a %s like ratio:\n" % (limit)
+
+	s = "```The following users have below a %s like ratio%s:\n" % (limit, '' if not second_arg else " with at least %s votes" % (specified_votes))
 	s += '=' * 59 + '\n'
-	flag = False
+	found = False
 
 	for row in cursor.fetchall():
 		if row[3] != 0 or row[4] != 0:
-			ratio = (row[2] / (row[2] + row[3]))
-			#print("ratio: %s\nlimit: %s\n" % (ratio, limit))
+			total = row[2] + row[3]
+			ratio = row[2] / total
 			if ratio <= limit:
-				flag = True
-				s += "{:<32} | {:>3}% upvoted, {:>4} posted\n".format(row[1], int(round(ratio * 100)), row[2] + row[3])
+				if second_arg and total < specified_votes:
+					continue
+				found = True
+				s += "{:<32} | {:>3}% upvotes, {:>4} votes\n".format(row[1], int(round(ratio * 100)), row[2] + row[3])
 
-	if not flag:
+	if not found:
 		s += "There were no users with ratios found below this threshold.\n"
 
 	s += '=' * 59 + "```"
