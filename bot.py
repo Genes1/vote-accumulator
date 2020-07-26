@@ -52,7 +52,9 @@ Steps to operate:
 
 
 import discord, sqlite3
+from difflib import SequenceMatcher
 from discord.ext import commands
+from datetime import datetime
 f = open("token.txt", "r")
 token = f.read()
 client = commands.Bot(command_prefix = '.')
@@ -123,44 +125,32 @@ async def add_user(db, cursor, member):
 	if member.bot:
 		return
 	cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score) VALUES (?, ?, 0, 0, 0)", (member.id, member.name))
-	print("joined: %s %s" % (member.name, member.id))
 	db.commit()
 
 
-	
-
-
-
-def get_result_string(info):
-
-	""" 
-		Return a string that represents a table row, prettified.
-		Takes tuple
-		Returns string
-	"""
-
-	s = ""
-	s += "============ " + str(info[1]) + " ============ \n"
-	s += "Total: " + str(info[4]) + '\n'
-	s += "Upvotes: " + str(info[2]) + '\n'
-	s += "Downvotes: " + str(info[3]) + '\n'
-	return s
 
 
 
 
-
-
-def log(info):
+async def log(info):
 
 	""" 
 		Log an error that occurred while the bot ran.
 	"""
 
 	f = open('error.log', 'a')
-	f.write(info + '\n')
+	f.write(datetime.now().strftime('[%m/%d %H:%M:%S]\n') + info + '\n\n')
 	f.close()
 
+
+
+def result_to_string(row):
+	s = "============ " + str(row[1]) + "'s stats ============ \n"
+	s += "Total: " + str(row[4]) + '\n'
+	s += "Upvotes: " + str(row[2]) + '\n'
+	s += "Downvotes: " + str(row[3]) + '\n'
+	s += "% Upvotes: " + ('0' if row[2] + row[3] == 0 else str(int(100 * round((row[2] / (row[2] + row[3])))))) + '%\n'
+	return s
 
 
 #--------------------------------------------------------------------------------------------------------
@@ -199,8 +189,7 @@ async def on_ready():
 			await add_user(db, cursor, member)
 		except sqlite3.IntegrityError:
 			cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (member.name, member.id))
-			print("%s's name was updated. (id = %d)" % (member.name, member.id))
-			pass
+			#print("%s's name was updated. (id = %d)" % (member.name, member.id))
 
 	print("DB was automatically updated.\n")
 	db.commit()
@@ -238,7 +227,6 @@ async def on_member_remove(member):
 	db, cursor = get_db_and_cursor()
 	cursor.execute("DELETE FROM users WHERE user_id = ?", (member.id,))
 	db.commit()
-	print("\n%s has left and was removed from the db.\n" % (member.name))
 
 
 
@@ -254,6 +242,7 @@ async def on_user_update(before, after):
 
 	db, cursor = get_db_and_cursor()
 	cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (after.name, before.id,))
+	db.commit()
 
 
 
@@ -266,6 +255,7 @@ async def on_raw_reaction_add(payload):
 
 	member = payload.member
 
+
 	if not member.bot:
 
 		db, cursor = get_db_and_cursor()
@@ -273,6 +263,9 @@ async def on_raw_reaction_add(payload):
 		channel = await client.fetch_channel(payload.channel_id)
 		message = await channel.fetch_message(payload.message_id)
 		author = message.author
+
+		if client.get_guild(payload.guild_id).get_member(author.id) == None:
+			return
 
 		if author.id == member.id:
 			await message.remove_reaction(payload.emoji, member)
@@ -321,6 +314,9 @@ async def on_raw_reaction_remove(payload):
 	message = await channel.fetch_message(payload.message_id)
 	author = message.author
 
+	if client.get_guild(payload.guild_id).get_member(author.id) == None:
+		return
+
 	if author.bot or author.id == payload.user_id or len(message.attachments) == 0:
 		return
 
@@ -363,15 +359,15 @@ async def on_raw_reaction_remove(payload):
 
 async def on_command_error(ctx, exc):  
 
-	log("\'%s\' by %s : %s" % (ctx.message.content, ctx.message.author, type(exc)))
+	await log("\'%s\' by %s: \n%s => %s" % (ctx.message.content, ctx.message.author, type(exc), str(exc)))
 	if type(exc) == discord.ext.commands.errors.MissingRequiredArgument:
 		await ctx.channel.send("`Please provide the proper format for this command. Check .help for formatting.`")
 	elif type(exc) == discord.ext.commands.errors.CommandNotFound:
-		await ctx.channel.send("`No such command exists.`")
+		await ctx.channel.send("`No such command exists.  Check .help for a list of commands.`")
 	elif type(exc) == discord.ext.commands.errors.MissingPermissions:
 		await ctx.channel.send("`You do not have sufficient permissions to run that command.`")
-	elif type(exc) == discord.ext.commands.errors.CommandInvokeError: #todo what is happening here???
-		print(exc)
+	elif type(exc) == discord.ext.commands.errors.CommandInvokeError: 
+		print("An unexpected error occured: " + exc)
 
 
 
@@ -393,7 +389,7 @@ async def on_command_error(ctx, exc):
 
 @client.command(aliases = ['score', 'show', 'votes'])
 
-async def stats(ctx, arg):
+async def stats(ctx, *args):
 
 	"""
 		Display the upvotes, downvotes, and stats of an individual.
@@ -401,21 +397,49 @@ async def stats(ctx, arg):
 	"""
 
 	db, cursor = get_db_and_cursor()
-	if arg == "me":
+	s = ''
+
+	if args[0] == "me":
+
 		arg = ctx.message.author.id
+		cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (arg,))
+		result = cursor.fetchone()
+		s = result_to_string(result) if result != None else "No such user found."
 
-	cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (arg,))
-	result = cursor.fetchone()
+	elif args[0] == "id":
 
-	if result == None:
-		s = "No such user found."
-	else:	
-		s = ""
-		s += "============ " + str(result[1]) + "'s stats ============ \n"
-		s += "Total: " + str(result[4]) + '\n'
-		s += "Upvotes: " + str(result[2]) + '\n'
-		s += "Downvotes: " + str(result[3]) + '\n'
-		s += "% Upvotes: " + str(int(100 * round((result[2] / (result[2] + result[3]))))) + '%\n'
+		if len(args) > 1:
+
+			cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (args[1],))
+			result = cursor.fetchone()
+			s = result_to_string(result) if result != None else "No such user found."
+
+		else:
+			await ctx.channel.send("`Please enter the approriate number of arguments for id usage.`")
+			return
+
+	else:
+
+		cursor.execute("SELECT * FROM users")
+		matches = []
+
+		for result in cursor.fetchall():
+			if SequenceMatcher(None, args[0].lower(), result[1].lower()).ratio() >= 0.75:
+				matches.append(list(result))
+			#print("%s is similar to %s: %s" % (result[1].lower(), args[0].lower(), SequenceMatcher(None, args[0].lower(), result[1].lower()).ratio()))
+
+		for match in matches:
+			user = client.get_user(match[0])
+			if user == None:
+				continue
+			match[1] = "%s#%s" % (user.name, user.discriminator)
+			s += result_to_string(match)
+
+		if s == '':
+			s += "No results found."
+
+
+
 
 
 
@@ -469,18 +493,16 @@ async def top(ctx, *args):
 
 
 	cursor.execute(q, (num,))
-	s = "{:^63}\n".format("top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k))
+	s = "{:^63}\n".format("Top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k))
 	s += ' ' + '_' * 62 + ' \n'
 	s +=  "|{:^38}|{:^5}|{:^5}|{:^5}|{:^5}|\n".format("Name", "Score", "Up", "Down", "% Up")
 	s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
 	i = 1
 
-	# {:>3}% upvotes, {:>4} votes\n".format(row[1], int(round(ratio * 100))
-
 	for row in cursor.fetchall():
 		if (row[3] != 0 or row[4] != 0): 
-			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:>4}%|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
-				int(100 * round((row[2] / (row[2] + row[3])))))
+			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:<5}|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
+				str(int(100 * round((row[2] / (row[2] + row[3]))))) + '%')
 			s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
 			i += 1
 
@@ -506,7 +528,7 @@ async def help(ctx):
 	#embed.set_image(url = "https://cdn.discordapp.com/attachments/735961470398890084/736071911561363507/yande.re_621327_sample_ikomochi_megane_seifuku_shirt_lift_skirt_lift.jpg") 	# bottom large rect
 	#embed.set_thumbnail(url = "https://cdn.discordapp.com/attachments/722537044353482862/722698539771363328/original_drawn_by_laru__sample-4bbee8bbb28f24ea258c2a257efc3f9e.jpg")		# top right small rect
 
-	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
+	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [username]`\n.score id [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
 	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-20) (score/up/down)`\n`.top (1-20)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up, or 'down'. Takes on 'score' by default, if left empty.")
 	embed.add_field(name = "\nLeaving", value = "Leaving the server and rejoining ***WILL WIPE YOUR SCORE.*** For this reason, we can *not* recover voting records of previous visits. This lets us keep the database small and efficient.", inline = False)
 
@@ -554,7 +576,7 @@ async def update(ctx):
 	""" 
 		Update the database on call. 
 	"""
-
+	print("Manual database update started...")
 	members = ctx.guild.members
 	db, cursor = get_db_and_cursor()
 	for member in members:
@@ -562,9 +584,8 @@ async def update(ctx):
 			await add_user(db, cursor, member)
 		except sqlite3.IntegrityError:
 			cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (member.name, member.id))
-			print("%s's name was updated. (id = %d)" % (member.name, member.id))
 			pass
-
+	print("Database was updated.")
 	db.commit()
 
 
@@ -593,12 +614,12 @@ async def show_db(ctx, *args):
 	if len(args) == 0:
 		print('\n' + '-' * 32 + '\n')
 		for t in cursor.fetchall():
-			print(get_result_string(t))
+			print(result_to_string(t))
 		print('-' * 32 + '\n')
 	else:
 		f.write('\n' + '-' * 32 + '\n')
 		for t in cursor.fetchall():
-			f.write(get_result_string(t))
+			f.write(result_to_string(t))
 		f.write('-' * 32 + '\n')
 		f.close()
 
@@ -685,7 +706,7 @@ async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_ye
 @client.command(aliases = ['admin'], pass_context = True)
 @commands.has_permissions(administrator = True)
 
-async def adminhelp(ctx):
+async def admin_help(ctx):
 
 	""" 
 		List the commands available to admins. 
@@ -698,7 +719,7 @@ async def adminhelp(ctx):
 	embed.set_author(name = "Museum Help Service [Admin]", icon_url = "https://cdn.discordapp.com/attachments/732933150828658689/736083821144965180/imageedit_153_3067097904.png") 
 
 	embed.add_field(name = ".kill\nalias: [.end, .terminate]\n\n", value = "`.kill`\n\nKill all instances of the bot currently running. Use this before restarting, or if you get multiple bot messages per command.")
-	embed.add_field(name = ".limit\nalias: [.lim]", value = "`.limit (0.0 - 1.0)`\n\nDisplay all users with an upvote ratio (up / [up + down]) lower than the one specified.")
+	embed.add_field(name = ".limit\nalias: [.lim]", value = "`.limit (0.0 - 1.0)`\n`.limit (0.0 - 1.0) [X > 0]`\n\nDisplay all users with an upvote ratio (up / [up + down]) lower than the one specified. An additional argument qualifies the search for the user to have at least X amount of votes recorded.")
 	embed.add_field(name = ".update\nalias: [.sync]", value = "`.update`\n\nUpdate the database to have all currently visible users and their usernames.")
 	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
 	embed.add_field(name = ".destroy_the_database_yes_i_know_what_this_means", value = "`.destroy_the_database_yes_i_know_what_this_means`\n\nDon't do this unless you have a backup.")
