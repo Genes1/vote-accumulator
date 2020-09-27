@@ -1,0 +1,13 @@
+{
+	"embed" : {
+		"author": "Upvote Help",
+		"author_image" : "https://cdn.discordapp.com/attachments/735961470398890084/736852539860975636/20111026-Sumo_Forum_Mongolians1_large.png",
+		"thumbnail_image" : "",
+		"bottom_image" : ""
+	},
+
+	"logging" : {
+		"log_file" : "error.log",
+		"log_channel" : "736090278460522497"
+	}
+}

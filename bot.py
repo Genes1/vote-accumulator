@@ -51,12 +51,17 @@ Steps to operate:
 """
 
 
-import discord, sqlite3
+import discord, sqlite3, json
 from difflib import SequenceMatcher
 from discord.ext import commands
 from datetime import datetime
-f = open("token.txt", "r")
-token = f.read()
+
+with open('token.txt', 'r') as f:
+	token = f.read()
+
+with open('config.json', 'r') as f:
+	config = json.load(f)
+
 client = commands.Bot(command_prefix = '.')
 client.remove_command('help')
 
@@ -64,7 +69,6 @@ client.remove_command('help')
 
 
 #--------------------------------------- UTILITY FUNCTIONS ---------------------------------------------
-
 
 
 
@@ -134,23 +138,27 @@ async def add_user(db, cursor, member):
 
 async def log(info):
 
-	""" 
-		Log an error that occurred while the bot ran.
-	"""
+	""" Log an error that occurred while the bot ran. """
+	filename = 'error.log' if not config["logging"]["log_file"] else config["logging"]["log_file"]
+	with open(filename, 'a') as f:
+		f.write(datetime.now().strftime('[%m/%d %H:%M:%S]\n') + info + '\n\n')
 
-	f = open('error.log', 'a')
-	f.write(datetime.now().strftime('[%m/%d %H:%M:%S]\n') + info + '\n\n')
-	f.close()
+
+
 
 
 
 def result_to_string(row):
+
+	""" Convert a row from the table to a string in printable format. """
+
 	s = "============ " + str(row[1]) + "'s stats ============ \n"
 	s += "Total: " + str(row[4]) + '\n'
 	s += "Upvotes: " + str(row[2]) + '\n'
 	s += "Downvotes: " + str(row[3]) + '\n'
-	s += "% Upvotes: " + ('0' if row[2] + row[3] == 0 else str(int(100 * round((row[2] / (row[2] + row[3])))))) + '%\n'
+	s += "% Upvotes: " + ('0' if row[2] + row[3] == 0 else str(int(100 * (row[2] / (row[2] + row[3]))))) + '%\n'
 	return s
+
 
 
 #--------------------------------------------------------------------------------------------------------
@@ -255,7 +263,6 @@ async def on_raw_reaction_add(payload):
 
 	member = payload.member
 
-
 	if not member.bot:
 
 		db, cursor = get_db_and_cursor()
@@ -264,16 +271,12 @@ async def on_raw_reaction_add(payload):
 		message = await channel.fetch_message(payload.message_id)
 		author = message.author
 
-		if client.get_guild(payload.guild_id).get_member(author.id) == None:
+		if client.get_guild(payload.guild_id).get_member(author.id) == None or author.bot or len(message.attachments) == 0:
 			return
 
 		if author.id == member.id:
 			await message.remove_reaction(payload.emoji, member)
 			return
-
-		if author.bot or len(message.attachments) == 0:
-			return
-
 
 		if payload.emoji.name == '1Upvote':
 
@@ -299,6 +302,17 @@ async def on_raw_reaction_add(payload):
 			else:
 				db.commit()
 
+		# post-wise counting
+		up, down = 0, 0
+		for reaction in message.reactions:
+			if reaction.emoji.name =='1Upvote':
+				up += reaction.count
+			elif reaction.emoji.name == '1Downvote':
+				down += reaction.count
+
+		if down > up + 5:
+			log_channel = client.get_channel(int(config["logging"]["log_channel"]))
+			await log_channel.send(f'http://discordapp.com/channels/{payload.guild_id}/{payload.channel_id}/{payload.message_id}')
 
 
 
@@ -371,7 +385,6 @@ async def on_command_error(ctx, exc):
 
 
 
-
 # ==================================================================================================
 
 
@@ -383,7 +396,6 @@ async def on_command_error(ctx, exc):
 
 
 # ////////////////////////////////////// USER COMMANDS \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-
 
 
 
@@ -437,10 +449,6 @@ async def stats(ctx, *args):
 
 		if s == '':
 			s += "No results found."
-
-
-
-
 
 
 	await ctx.channel.send('```' + s + '```')
@@ -502,7 +510,7 @@ async def top(ctx, *args):
 	for row in cursor.fetchall():
 		if (row[3] != 0 or row[4] != 0): 
 			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:<5}|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
-				str(int(100 * round((row[2] / (row[2] + row[3]))))) + '%')
+				str(int(100 * (row[2] / (row[2] + row[3])))) + '%')
 			s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
 			i += 1
 
@@ -512,23 +520,23 @@ async def top(ctx, *args):
 
 
 
+
 @client.command(pass_context = True, aliases = ['helpme'])
 
 async def help(ctx):
 
-	""" 
-		List the available commands to general users. 
-	"""
+	""" List the available commands to general users. """
 
 	embed = discord.Embed(
 		colour = discord.Colour.blue()
 	)
 
-	embed.set_author(name = "Museum Help Service", icon_url = "https://cdn.discordapp.com/attachments/732933150828658689/736083821144965180/imageedit_153_3067097904.png") 				# top left small circle
-	#embed.set_image(url = "https://cdn.discordapp.com/attachments/735961470398890084/736071911561363507/yande.re_621327_sample_ikomochi_megane_seifuku_shirt_lift_skirt_lift.jpg") 	# bottom large rect
-	#embed.set_thumbnail(url = "https://cdn.discordapp.com/attachments/722537044353482862/722698539771363328/original_drawn_by_laru__sample-4bbee8bbb28f24ea258c2a257efc3f9e.jpg")		# top right small rect
+	embed.set_author(name = config["embed"]["author"], icon_url = config["embed"]["author_image"])
+	embed.set_image(url = config["embed"]["bottom_image"])
+	embed.set_thumbnail(url = config["embed"]["thumbnail_image"])
 
-	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [username]`\n.score id [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
+
+	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [username]`\n`.score id [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
 	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-20) (score/up/down)`\n`.top (1-20)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up, or 'down'. Takes on 'score' by default, if left empty.")
 	embed.add_field(name = "\nLeaving", value = "Leaving the server and rejoining ***WILL WIPE YOUR SCORE.*** For this reason, we can *not* recover voting records of previous visits. This lets us keep the database small and efficient.", inline = False)
 
@@ -573,9 +581,8 @@ async def kill(ctx):
 
 async def update(ctx):
 
-	""" 
-		Update the database on call. 
-	"""
+	""" Update the database on call. """
+
 	print("Manual database update started...")
 	members = ctx.guild.members
 	db, cursor = get_db_and_cursor()
@@ -604,11 +611,7 @@ async def show_db(ctx, *args):
 		Otherwise, create/overwrite the file specified by the first argument.
 	"""
 
-	if len(args) > 0:
-		f = open(args[0], "w")
-
 	connection, cursor = get_db_and_cursor()
-
 	cursor.execute("SELECT * FROM users")
 
 	if len(args) == 0:
@@ -617,11 +620,11 @@ async def show_db(ctx, *args):
 			print(result_to_string(t))
 		print('-' * 32 + '\n')
 	else:
-		f.write('\n' + '-' * 32 + '\n')
-		for t in cursor.fetchall():
-			f.write(result_to_string(t))
-		f.write('-' * 32 + '\n')
-		f.close()
+		with open(args[0], "w") as f:
+			f.write('\n' + '-' * 32 + '\n')
+			for t in cursor.fetchall():
+				f.write(result_to_string(t))
+			f.write('-' * 32 + '\n')
 
 
 
@@ -689,13 +692,12 @@ async def limit(ctx, *args):
 
 async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_yes_i_know_what_this_means(ctx, arg):
 
-	"""
-		If you have any data, PLEASE BACK IT UP!!!!
-	"""
+	""" If you have any data, PLEASE BACK IT UP!!!! """
 
 	connection, cursor = get_db_and_cursor()
 	cursor.execute("DELETE FROM users")
 	cursor.execute("SELECT * FROM users")
+	connection.commit()
 
 
 
@@ -708,18 +710,18 @@ async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_ye
 
 async def admin_help(ctx):
 
-	""" 
-		List the commands available to admins. 
-	"""
+	""" List the commands available to admins. """
 
 	embed = discord.Embed(
 		colour = discord.Colour.blue()
 	)
-
-	embed.set_author(name = "Museum Help Service [Admin]", icon_url = "https://cdn.discordapp.com/attachments/732933150828658689/736083821144965180/imageedit_153_3067097904.png") 
+	
+	embed.set_author(name = config["embed"]["author"] + " [Admin]", icon_url = config["embed"]["author_image"])
+	embed.set_image(url = config["embed"]["bottom_image"])
+	embed.set_thumbnail(url = config["embed"]["thumbnail_image"])
 
 	embed.add_field(name = ".kill\nalias: [.end, .terminate]\n\n", value = "`.kill`\n\nKill all instances of the bot currently running. Use this before restarting, or if you get multiple bot messages per command.")
-	embed.add_field(name = ".limit\nalias: [.lim]", value = "`.limit (0.0 - 1.0)`\n`.limit (0.0 - 1.0) [X > 0]`\n\nDisplay all users with an upvote ratio (up / [up + down]) lower than the one specified. An additional argument qualifies the search for the user to have at least X amount of votes recorded.")
+	embed.add_field(name = ".limit\nalias: [.lim]", value = "`.limit (0.0 - 1.0)`\n`.limit (0.0 - 1.0) [X>0]`\n\nDisplay all users with an upvote ratio (up / [up + down]) lower than the one specified. An additional argument qualifies the search for the user to have at least X amount of votes recorded.")
 	embed.add_field(name = ".update\nalias: [.sync]", value = "`.update`\n\nUpdate the database to have all currently visible users and their usernames.")
 	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
 	embed.add_field(name = ".destroy_the_database_yes_i_know_what_this_means", value = "`.destroy_the_database_yes_i_know_what_this_means`\n\nDon't do this unless you have a backup.")
