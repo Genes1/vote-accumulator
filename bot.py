@@ -94,6 +94,7 @@ async def init_db():
 	 													downvotes_earned INTEGER, 
 	 													score INTEGER
 	 												)"""
+	 												# times_voted INTEGER
 	cursor.execute(init_command)
 
 	# RESET DB
@@ -126,10 +127,9 @@ async def add_user(db, cursor, member):
 
 	""" Add a user to the database. """
 
-	if member.bot:
-		return
-	cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score) VALUES (?, ?, 0, 0, 0)", (member.id, member.name))
-	db.commit()
+	if not member.bot:
+		cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score, times_voted) VALUES (?, ?, 0, 0, 0, 0)", (member.id, member.name))
+		db.commit()
 
 
 
@@ -157,6 +157,7 @@ def result_to_string(row):
 	s += "Upvotes: " + str(row[2]) + '\n'
 	s += "Downvotes: " + str(row[3]) + '\n'
 	s += "% Upvotes: " + ('0' if row[2] + row[3] == 0 else str(int(100 * (row[2] / (row[2] + row[3]))))) + '%\n'
+	s += "Times voted: " + str(row[5]) + '\n'
 	return s
 
 
@@ -191,6 +192,7 @@ async def on_ready():
 	members = client.get_all_members()
 	db, cursor = get_db_and_cursor()
 	print("Updating DB on startup...")
+	#cursor.execute("ALTER TABLE users ADD COLUMN times_voted INTEGER") right here right now
 
 	for member in members:
 		try:
@@ -261,9 +263,9 @@ async def on_user_update(before, after):
 
 async def on_raw_reaction_add(payload):
 
-	member = payload.member
+	voter = payload.member
 
-	if not member.bot:
+	if not voter.bot:
 
 		db, cursor = get_db_and_cursor()
 
@@ -274,12 +276,13 @@ async def on_raw_reaction_add(payload):
 		if client.get_guild(payload.guild_id).get_member(author.id) == None or author.bot or len(message.attachments) == 0:
 			return
 
-		if author.id == member.id:
-			await message.remove_reaction(payload.emoji, member)
+		if author.id == voter.id:
+			await message.remove_reaction(payload.emoji, voter)
 			return
 
 		if payload.emoji.name == '1Upvote':
 
+			# increment score of poster
 			cursor.execute("UPDATE users SET upvotes_earned = upvotes_earned + 1 WHERE user_id = ?", (author.id,))
 			cursor.execute("UPDATE users SET score = score + 1 WHERE user_id = ?", (author.id,))
 			result = cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (author.id,))
@@ -289,9 +292,9 @@ async def on_raw_reaction_add(payload):
 				print("No results were found for the given author (%s). Consider updating the database." % (author.name))
 			else:
 				db.commit()
-
 		elif payload.emoji.name == '1Downvote':
 			
+			# decrement score 
 			cursor.execute("UPDATE users SET downvotes_earned = downvotes_earned + 1 WHERE user_id = ?", (author.id,))
 			cursor.execute("UPDATE users SET score = score - 1 WHERE user_id = ?", (author.id,))
 			result = cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (author.id,))
@@ -302,7 +305,18 @@ async def on_raw_reaction_add(payload):
 			else:
 				db.commit()
 
-		# post-wise counting
+
+		# add to voter's vote count
+		if payload.emoji.name == '1Upvote' or payload.emoji.name == '1Downvote':
+			cursor.execute("UPDATE users SET times_voted = times_voted + 1 WHERE user_id = ?", (voter.id,))
+			result = cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (voter.id,))
+			info = result.fetchone()
+			if info == None:
+				print("No results were found for the given voter (%s). Consider updating the database." % (voter.name))
+			else:
+				db.commit()
+
+		# post-wise counting, see if report should be made
 		up, down = 0, 0
 		for reaction in message.reactions:
 			if reaction.emoji.name =='1Upvote':
@@ -327,6 +341,7 @@ async def on_raw_reaction_remove(payload):
 	channel = await client.fetch_channel(payload.channel_id)
 	message = await channel.fetch_message(payload.message_id)
 	author = message.author
+	voter = payload.user_id
 
 	if client.get_guild(payload.guild_id).get_member(author.id) == None:
 		return
@@ -364,6 +379,17 @@ async def on_raw_reaction_remove(payload):
 			else:
 				db.commit()
 
+	# decrement voter's votes count
+	if payload.emoji.name == '1Upvote' or payload.emoji.name == '1Downvote':
+		cursor.execute("UPDATE users SET times_voted = times_voted - 1 WHERE user_id = ?", (voter,))
+		result = cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (voter,))
+		info = result.fetchone()
+		if info == None:
+			print("No results were found for the given voter id (%s). Consider updating the database." % (voter))
+		else:
+			db.commit()
+
+
 
 
 
@@ -381,7 +407,7 @@ async def on_command_error(ctx, exc):
 	elif type(exc) == discord.ext.commands.errors.MissingPermissions:
 		await ctx.channel.send("`You do not have sufficient permissions to run that command.`")
 	elif type(exc) == discord.ext.commands.errors.CommandInvokeError: 
-		print("An unexpected error occured: " + exc)
+		print("An unexpected error occured: " + str(exc))
 
 
 
@@ -485,33 +511,34 @@ async def top(ctx, *args):
 	k = 'score'
 
 	if len(args) == 2:
-		if args[1] == '' or args[1] == 'score':
-			pass
-		elif args[1] == 'up':
+		if args[1] == 'up':
 			k = "upvotes_earned"
 		elif args[1] == 'down':	
 			k = "downvotes_earned"
+		elif args[1] == 'votes':	
+			k = "times_voted"
 		else:
-			await ctx.channel.send("`The second argument was not one of ['', 'score', 'up', 'down']. Try again.`")
+			await ctx.channel.send("`The second argument was not one of ['', 'score', 'up', 'down', 'votes']. Try again.`")
 			return
 
 	q = "SELECT * FROM users ORDER BY %s DESC LIMIT ?" % k
+	print(q)
 
 	db, cursor = get_db_and_cursor()
 
 
 	cursor.execute(q, (num,))
-	s = "{:^63}\n".format("Top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k))
-	s += ' ' + '_' * 62 + ' \n'
-	s +=  "|{:^38}|{:^5}|{:^5}|{:^5}|{:^5}|\n".format("Name", "Score", "Up", "Down", "% Up")
-	s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
+	s = "{:^63}\n".format("Top %s curator%s ordered by %s" % ('' if (num == 1) else num, 's' if (num > 1) else '', k.replace('_', ' ')))
+	s += ' ' + '_' * 71 + ' \n'
+	s +=  "|{:^38}|{:^5}|{:^5}|{:^5}|{:^5}|{:^8}|\n".format("Name", "Score", "Up", "Down", "% Up", "Votes")
+	s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 8 + '·\n'
 	i = 1
 
 	for row in cursor.fetchall():
-		if (row[3] != 0 or row[4] != 0): 
-			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:<5}|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
-				str(int(100 * (row[2] / (row[2] + row[3])))) + '%')
-			s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '·\n'
+		if (row[3] != 0 or row[4] != 0) or k == 'times_voted': 
+			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:<5}|{:<8}|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
+				str(int(100 * (row[2] / (row[2] + row[3]) if (row[2] + row[3]) != 0 else 0))) + '%', row[5])
+			s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 8 + '·\n'
 			i += 1
 
 	await ctx.channel.send('```' + s + '```')
@@ -537,7 +564,7 @@ async def help(ctx):
 
 
 	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [username]`\n`.score id [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
-	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-20) (score/up/down)`\n`.top (1-20)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up, or 'down'. Takes on 'score' by default, if left empty.")
+	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-20) (score/up/down)`\n`.top (1-20)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up', 'down', or 'votes'. Takes on 'score' by default, if left empty.")
 	embed.add_field(name = "\nLeaving", value = "Leaving the server and rejoining ***WILL WIPE YOUR SCORE.*** For this reason, we can *not* recover voting records of previous visits. This lets us keep the database small and efficient.", inline = False)
 
 	await ctx.channel.send(embed = embed)
@@ -690,7 +717,7 @@ async def limit(ctx, *args):
 @client.command()
 @commands.has_permissions(administrator = True)
 
-async def destroy_the_database_yes_i_know_what_this_meansdestroy_the_database_yes_i_know_what_this_means(ctx, arg):
+async def destroy_the_database_yes_i_know_what_this_means(ctx, arg):
 
 	""" If you have any data, PLEASE BACK IT UP!!!! """
 
