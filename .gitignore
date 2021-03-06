@@ -2,3 +2,5 @@ token.txt
 votes.db
 db.out
 error.log
+config.json
+guess.log

@@ -62,7 +62,10 @@ with open('token.txt', 'r') as f:
 with open('config.json', 'r') as f:
 	config = json.load(f)
 
-client = commands.Bot(command_prefix = '.')
+intents = discord.Intents.default()  
+intents.members = True 
+
+client = commands.Bot(command_prefix = '.', intents = intents)
 client.remove_command('help')
 
 
@@ -92,10 +95,12 @@ async def init_db():
 	 													user_name TEXT, 
 	 													upvotes_earned INTEGER, 
 	 													downvotes_earned INTEGER, 
-	 													score INTEGER
+	 													score INTEGER,
+	 													times_voted INTEGER
 	 												)"""
-	 												# times_voted INTEGER
+	 												
 	cursor.execute(init_command)
+
 
 	# RESET DB
 	# cursor.execute("DELETE FROM users")
@@ -123,6 +128,7 @@ def get_db_and_cursor():
 
 
 
+
 async def add_user(db, cursor, member):
 
 	""" Add a user to the database. """
@@ -143,6 +149,16 @@ async def log(info):
 	with open(filename, 'a') as f:
 		f.write(datetime.now().strftime('[%m/%d %H:%M:%S]\n') + info + '\n\n')
 
+
+
+
+
+async def log_guess(info):
+
+	""" Log an error that occurred while the bot ran. """
+	filename = 'guess.log' if not config["logging"]["guess_file"] else config["logging"]["guess_file"]
+	with open(filename, 'a') as f:
+		f.write(datetime.now().strftime('[%m/%d %H:%M:%S]\n') + info + '\n\n')
 
 
 
@@ -199,7 +215,12 @@ async def on_ready():
 			await add_user(db, cursor, member)
 		except sqlite3.IntegrityError:
 			cursor.execute("UPDATE users SET user_name = ? WHERE user_id = ?", (member.name, member.id))
+			#cursor.execute("UPDATE users SET times_voted = ? WHERE user_id = ?", (0, member.id))
 			#print("%s's name was updated. (id = %d)" % (member.name, member.id))
+
+
+
+
 
 	print("DB was automatically updated.\n")
 	db.commit()
@@ -270,10 +291,15 @@ async def on_raw_reaction_add(payload):
 		db, cursor = get_db_and_cursor()
 
 		channel = await client.fetch_channel(payload.channel_id)
+		category = await client.fetch_channel(payload.channel_id)
 		message = await channel.fetch_message(payload.message_id)
+
 		author = message.author
 
-		if client.get_guild(payload.guild_id).get_member(author.id) == None or author.bot or len(message.attachments) == 0:
+		#print(category.id)
+		# or channel not in category.channels
+
+		if client.get_guild(payload.guild_id).get_member(author.id) == None or author.bot or len(message.attachments) == 0 :
 			return
 
 		if author.id == voter.id:
@@ -319,9 +345,9 @@ async def on_raw_reaction_add(payload):
 		# post-wise counting, see if report should be made
 		up, down = 0, 0
 		for reaction in message.reactions:
-			if reaction.emoji.name =='1Upvote':
+			if str(reaction) =='<:1Upvote:722604262571377073>':
 				up += reaction.count
-			elif reaction.emoji.name == '1Downvote':
+			elif str(reaction) == '<:1Downvote:722598932500447265>':
 				down += reaction.count
 
 		if down > up + 5:
@@ -397,6 +423,32 @@ async def on_raw_reaction_remove(payload):
 
 @client.event
 
+async def on_message(message):
+
+	# only look in moderated channel
+	if message.channel.id == 817630036625588274:
+
+		# make sure it's not the bot
+		if message.author != client.user:
+			
+			user = client.get_user(message.author.id)
+
+			if len(message.content) <= 256:
+				print(message.content)
+				s = message.author.name + '[' + str(message.author.id) + ']: \n' + message.content
+				await log_guess(s)
+				await user.send(("Thank you for submitting! Your guess is as follows:\n```%s```" % message.content))
+
+		
+		await message.delete()
+
+
+
+
+
+
+@client.event
+
 async def on_command_error(ctx, exc):  
 
 	await log("\'%s\' by %s: \n%s => %s" % (ctx.message.content, ctx.message.author, type(exc), str(exc)))
@@ -408,6 +460,8 @@ async def on_command_error(ctx, exc):
 		await ctx.channel.send("`You do not have sufficient permissions to run that command.`")
 	elif type(exc) == discord.ext.commands.errors.CommandInvokeError: 
 		print("An unexpected error occured: " + str(exc))
+	else:
+		print("OMEGALUL: " + str(exc))
 
 
 
@@ -490,7 +544,7 @@ async def top(ctx, *args):
 
 	"""
 		Display the upvotes, downvotes, and stats of an individual.
-		Usage: .top [places](1-20) [criteria](up/down/ratio/score)
+		Usage: .top [places](1-10) [criteria](up/down/ratio/score)
 	"""
 
 	if len(args) == 0 or len(args) > 2:
@@ -503,8 +557,8 @@ async def top(ctx, *args):
 		await ctx.channel.send("`Enter an integer as the first argument for this command.`")
 		return 
 
-	if num < 1 or num > 20:
-		await ctx.channel.send("`Enter a number 1-20 as the argument.`")
+	if num < 1 or num > 10:
+		await ctx.channel.send("`Enter a number 1-10 as the argument.`")
 		return
 
 
@@ -522,7 +576,6 @@ async def top(ctx, *args):
 			return
 
 	q = "SELECT * FROM users ORDER BY %s DESC LIMIT ?" % k
-	print(q)
 
 	db, cursor = get_db_and_cursor()
 
@@ -564,7 +617,7 @@ async def help(ctx):
 
 
 	embed.add_field(name = ".score\nalias: [.show, .votes]", value = "`.score [username]`\n`.score id [user id]`\n`.score me`\n\nShow the score, upvotes, and downvotes for the given user.")
-	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-20) (score/up/down)`\n`.top (1-20)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up', 'down', or 'votes'. Takes on 'score' by default, if left empty.")
+	embed.add_field(name = ".top\nalias: [.sort]\n", value = "`.top (1-10) (score/up/down/votes)`\n`.top (1-10)` \n\nShow the stats, in order, of the top X users. Is ordered by a criteria, which may be specified as 'score', 'up', 'down', or 'votes'. Takes on 'score' by default, if left empty.")
 	embed.add_field(name = "\nLeaving", value = "Leaving the server and rejoining ***WILL WIPE YOUR SCORE.*** For this reason, we can *not* recover voting records of previous visits. This lets us keep the database small and efficient.", inline = False)
 
 	await ctx.channel.send(embed = embed)
@@ -597,6 +650,78 @@ async def kill(ctx):
 	await ctx.channel.send("`Bot is being terminated...`")
 	await client.logout()
 	print("Bot was terminated.")
+
+
+
+
+
+
+@client.command(pass_context = True, aliases = ['cu'])
+@commands.has_permissions(administrator = True)
+
+async def change_up(ctx, *args):
+
+	"""
+		Add a certain amount to a user's score.
+	"""
+
+	db, cursor = get_db_and_cursor()
+	s = ''
+
+
+	cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (args[0],))
+	result = cursor.fetchone()
+	s = result_to_string(result) if result != None else "No such user found."
+
+	try:
+		num = int(args[1])
+	except ValueError:
+		await ctx.channel.send("`Enter an integer as the first argument for this command.`")
+		return 
+
+	if s != "No such user found.":
+		cursor.execute("UPDATE users SET upvotes_earned = upvotes_earned + ? WHERE user_id = ?", (num, args[0],))
+		await ctx.channel.send("`Update was run.`")
+	else:
+		await ctx.channel.send("`User was not found.`")
+
+	db.commit()
+
+
+
+
+
+
+@client.command(pass_context = True, aliases = ['cd'])
+@commands.has_permissions(administrator = True)
+
+async def change_down(ctx, *args):
+
+	"""
+		Add a certain amount to a user's score.
+	"""
+
+	db, cursor = get_db_and_cursor()
+	s = ''
+
+
+	cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (args[0],))
+	result = cursor.fetchone()
+	s = result_to_string(result) if result != None else "No such user found."
+
+	try:
+		num = int(args[1])
+	except ValueError:
+		await ctx.channel.send("`Enter an integer as the first argument for this command.`")
+		return 
+
+	if s != "No such user found.":
+		cursor.execute("UPDATE users SET downvotes_earned = downvotes_earned + ? WHERE user_id = ?", (num, args[0],))
+		await ctx.channel.send("`Update was run.`")
+	else:
+		await ctx.channel.send("`User was not found.`")
+
+	db.commit()
 
 
 
@@ -750,6 +875,8 @@ async def admin_help(ctx):
 	embed.add_field(name = ".kill\nalias: [.end, .terminate]\n\n", value = "`.kill`\n\nKill all instances of the bot currently running. Use this before restarting, or if you get multiple bot messages per command.")
 	embed.add_field(name = ".limit\nalias: [.lim]", value = "`.limit (0.0 - 1.0)`\n`.limit (0.0 - 1.0) [X>0]`\n\nDisplay all users with an upvote ratio (up / [up + down]) lower than the one specified. An additional argument qualifies the search for the user to have at least X amount of votes recorded.")
 	embed.add_field(name = ".update\nalias: [.sync]", value = "`.update`\n\nUpdate the database to have all currently visible users and their usernames.")
+	embed.add_field(name = ".change_down\nalias: [.cd]", value = "`.change_down [user_id] [int X]`\n\nChange a user's downvotes by a given amount. Can be positive or negative.")
+	embed.add_field(name = ".change_up\nalias: [.cu]", value = "`.change_up [user_id] [int X]`\n\nChange a user's upvotes by a given amount. Can be positive or negative.")
 	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
 	embed.add_field(name = ".destroy_the_database_yes_i_know_what_this_means", value = "`.destroy_the_database_yes_i_know_what_this_means`\n\nDon't do this unless you have a backup.")
 

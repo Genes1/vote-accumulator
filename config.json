@@ -8,6 +8,7 @@
 
 	"logging" : {
 		"log_file" : "error.log",
-		"log_channel" : "736090278460522497"
+		"log_channel" : "736090278460522497",
+		"guess_file" : "" 
 	}
 }
