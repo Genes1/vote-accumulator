@@ -236,6 +236,7 @@ async def on_ready():
 
 
 
+
 @client.event
 
 async def on_member_join(member):
@@ -553,6 +554,12 @@ async def top(ctx, *args):
 		Usage: .top [places](1-10) [criteria](up/down/ratio/score)
 	"""
 
+	# if ctx.message.author.guild_permissions.administrator:
+	# 	print('ur admin lol')
+	# else:
+	# 	print('u r a chump lol')
+
+
 	if len(args) == 0 or len(args) > 2:
 		await ctx.channel.send("`Please use the approriate amount of arguments for this command. .help for more info.`")
 		return 		
@@ -563,9 +570,14 @@ async def top(ctx, *args):
 		await ctx.channel.send("`Enter an integer as the first argument for this command.`")
 		return 
 
-	if num < 1 or num > 10:
-		await ctx.channel.send("`Enter a number 1-10 as the argument.`")
-		return
+	if not ctx.message.author.guild_permissions.administrator:
+		if num < 1 or num > 10:
+			await ctx.channel.send("`Enter a number 1-10 as the argument.`")
+			return
+	else:
+		if num < 1:
+			await ctx.channel.send("`Enter a positive number as the argument.`")
+			return
 
 
 	k = 'score'
@@ -591,6 +603,7 @@ async def top(ctx, *args):
 	s += ' ' + '_' * 71 + ' \n'
 	s +=  "|{:^38}|{:^5}|{:^5}|{:^5}|{:^5}|{:^8}|\n".format("Name", "Score", "Up", "Down", "% Up", "Votes")
 	s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 8 + '·\n'
+
 	i = 1
 
 	for row in cursor.fetchall():
@@ -598,9 +611,16 @@ async def top(ctx, *args):
 			s += "|{:<5}{:<32} |{:<5}|{:<5}|{:<5}|{:<5}|{:<8}|\n".format(str(i) + '.', row[1], row[4], row[2], row[3], 
 				str(int(100 * (row[2] / (row[2] + row[3]) if (row[2] + row[3]) != 0 else 0))) + '%', row[5])
 			s += '·' + '-' * 38 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 5 + '+' + '-' * 8 + '·\n'
+
+			if i % 10 == 0:
+				await ctx.channel.send('```' + s + '```')
+				s = ''
 			i += 1
 
-	await ctx.channel.send('```' + s + '```')
+
+	if num % 10 != 0:
+		await ctx.channel.send('```' + s + '```')
+
 
 
 
@@ -666,6 +686,10 @@ async def kill(ctx):
 
 async def common(ctx, *args):
 
+	"""
+		Get the common tags between multiple danbooru images.
+	"""
+
 	danbooru_client = Danbooru('danbooru')
 
 	try:
@@ -681,6 +705,8 @@ async def common(ctx, *args):
 		await ctx.channel.send("`%s`" % tagset[0].intersection(*tagset))
 	except:
 		await ctx.channel.send("`There was an issue with reaching posts.`")
+
+
 
 
 
@@ -751,6 +777,26 @@ async def change_down(ctx, *args):
 		await ctx.channel.send("`User was not found.`")
 
 	db.commit()
+
+
+
+
+
+
+
+@client.command(pass_context = True, aliases = ['send'])
+@commands.has_permissions(administrator = True)
+
+async def send_to_channel(ctx, *args):
+
+	"""
+		Send a message as the bot.
+	"""
+
+	channel = client.get_channel(int(args[0]))
+	await channel.send(args[1])
+
+
 
 
 
@@ -907,8 +953,10 @@ async def admin_help(ctx):
 	embed.add_field(name = ".change_down\nalias: [.cd]", value = "`.change_down [user_id] [int X]`\n\nChange a user's downvotes by a given amount. Can be positive or negative.")
 	embed.add_field(name = ".change_up\nalias: [.cu]", value = "`.change_up [user_id] [int X]`\n\nChange a user's upvotes by a given amount. Can be positive or negative.")
 	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
-	embed.add_field(name = ".common", value = "`.common`\n`.tags [danbooru id list]`\n\nFind the common tags of the specified posts. Assumed to be from Danbooru.")
+	embed.add_field(name = ".common\nalias: [.tags]", value = "`.common`\n`.tags [danbooru id list]`\n\nFind the common tags of the specified posts. Assumed to be from Danbooru.")
+	embed.add_field(name = ".send_to_channel\nalias: [.send]", value = "`.send [channel_id] \"message to send\"`\n\nSend the message to a channel (from the bot).")
 	embed.add_field(name = ".destroy_the_database_yes_i_know_what_this_means", value = "`.destroy_the_database_yes_i_know_what_this_means`\n\nDon't do this unless you have a backup.")
+
 
 	await ctx.channel.send(embed = embed)
 
