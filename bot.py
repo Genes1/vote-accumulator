@@ -1,3 +1,5 @@
+#! /usr/bin/python3
+
 """
 This is a bot meant to serve as a vote accumulator. Votes are defined as reactions.
 
@@ -55,6 +57,7 @@ import discord, sqlite3, json
 from difflib import SequenceMatcher
 from discord.ext import commands
 from datetime import datetime
+from pybooru import Danbooru
 
 with open('token.txt', 'r') as f:
 	token = f.read()
@@ -426,7 +429,7 @@ async def on_raw_reaction_remove(payload):
 async def on_message(message):
 
 	# only look in moderated channel
-	if message.channel.id == 817630036625588274:
+	if message.channel.id == 820152288499859486:
 
 		# make sure it's not the bot
 		if message.author != client.user:
@@ -434,13 +437,16 @@ async def on_message(message):
 			user = client.get_user(message.author.id)
 
 			if len(message.content) <= 256:
-				print(message.content)
+				#print(message.content)
 				s = message.author.name + '[' + str(message.author.id) + ']: \n' + message.content
 				await log_guess(s)
 				await user.send(("Thank you for submitting! Your guess is as follows:\n```%s```" % message.content))
 
 		
 		await message.delete()
+
+	else:
+		await client.process_commands(message)
 
 
 
@@ -652,6 +658,29 @@ async def kill(ctx):
 	print("Bot was terminated.")
 
 
+
+
+
+@client.command(pass_context = True, aliases = ['tags'])
+@commands.has_permissions(administrator = True)
+
+async def common(ctx, *args):
+
+	danbooru_client = Danbooru('danbooru')
+
+	try:
+		id_list = [int(i) for i in args]
+	except:
+		await ctx.channel.send("`Enter an id list.`")
+		return 
+
+	try:
+		tagstrings = [danbooru_client.post_show(id)['tag_string'] for id in id_list]
+		tagset = [set(tagstring.split()) for tagstring in tagstrings]
+		#print(tagset[0].intersection(*tagset))
+		await ctx.channel.send("`%s`" % tagset[0].intersection(*tagset))
+	except:
+		await ctx.channel.send("`There was an issue with reaching posts.`")
 
 
 
@@ -878,6 +907,7 @@ async def admin_help(ctx):
 	embed.add_field(name = ".change_down\nalias: [.cd]", value = "`.change_down [user_id] [int X]`\n\nChange a user's downvotes by a given amount. Can be positive or negative.")
 	embed.add_field(name = ".change_up\nalias: [.cu]", value = "`.change_up [user_id] [int X]`\n\nChange a user's upvotes by a given amount. Can be positive or negative.")
 	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
+	embed.add_field(name = ".common", value = "`.common`\n`.tags [danbooru id list]`\n\nFind the common tags of the specified posts. Assumed to be from Danbooru.")
 	embed.add_field(name = ".destroy_the_database_yes_i_know_what_this_means", value = "`.destroy_the_database_yes_i_know_what_this_means`\n\nDon't do this unless you have a backup.")
 
 	await ctx.channel.send(embed = embed)
