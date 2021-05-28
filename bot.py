@@ -303,12 +303,13 @@ async def on_raw_reaction_add(payload):
 		#print(category.id)
 		# or channel not in category.channels
 
-		if client.get_guild(payload.guild_id).get_member(author.id) == None or author.bot or len(message.attachments) == 0 :
+		if client.get_guild(payload.guild_id).get_member(author.id) == None or author.bot or (len(message.attachments) == 0 and len(message.embeds) == 0):
 			return
 
 		if author.id == voter.id:
 			await message.remove_reaction(payload.emoji, voter)
 			return
+
 
 		if payload.emoji.name == '1Upvote':
 
@@ -322,8 +323,9 @@ async def on_raw_reaction_add(payload):
 				print("No results were found for the given author (%s). Consider updating the database." % (author.name))
 			else:
 				db.commit()
+		
 		elif payload.emoji.name == '1Downvote':
-			
+
 			# decrement score 
 			cursor.execute("UPDATE users SET downvotes_earned = downvotes_earned + 1 WHERE user_id = ?", (author.id,))
 			cursor.execute("UPDATE users SET score = score - 1 WHERE user_id = ?", (author.id,))
@@ -376,7 +378,7 @@ async def on_raw_reaction_remove(payload):
 	if client.get_guild(payload.guild_id).get_member(author.id) == None:
 		return
 
-	if author.bot or author.id == payload.user_id or len(message.attachments) == 0:
+	if author.bot or author.id == payload.user_id or (len(message.attachments) == 0 and len(message.embeds) == 0):
 		return
 
 	if payload.emoji.name == '1Upvote':
@@ -429,7 +431,7 @@ async def on_raw_reaction_remove(payload):
 
 async def on_message(message):
 
-	# only look in moderated channel
+	# only look in moderated guess channel
 	if message.channel.id == 820152288499859486:
 
 		# make sure it's not the bot
@@ -717,7 +719,7 @@ async def common(ctx, *args):
 async def change_up(ctx, *args):
 
 	"""
-		Add a certain amount to a user's score.
+		Add a certain amount to a user's upvotes earned.
 	"""
 
 	db, cursor = get_db_and_cursor()
@@ -753,7 +755,7 @@ async def change_up(ctx, *args):
 async def change_down(ctx, *args):
 
 	"""
-		Add a certain amount to a user's score.
+		Add a certain amount to a user's downvotes earned.
 	"""
 
 	db, cursor = get_db_and_cursor()
@@ -780,6 +782,38 @@ async def change_down(ctx, *args):
 
 
 
+
+
+@client.command(pass_context = True, aliases = ['set'])
+@commands.has_permissions(administrator = True)
+
+async def set_score(ctx, *args):
+
+	"""
+		Set a user's score.
+	"""
+
+	db, cursor = get_db_and_cursor()
+	s = ''
+
+
+	cursor.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (args[0],))
+	result = cursor.fetchone()
+	s = result_to_string(result) if result != None else "No such user found."
+
+	try:
+		num = int(args[1])
+	except ValueError:
+		await ctx.channel.send("`Enter an integer as the first argument for this command.`")
+		return 
+
+	if s != "No such user found.":
+		cursor.execute("UPDATE users SET score = ? WHERE user_id = ?", (num, args[0],))
+		await ctx.channel.send("`Update was run.`")
+	else:
+		await ctx.channel.send("`User was not found.`")
+
+	db.commit()
 
 
 
@@ -952,6 +986,7 @@ async def admin_help(ctx):
 	embed.add_field(name = ".update\nalias: [.sync]", value = "`.update`\n\nUpdate the database to have all currently visible users and their usernames.")
 	embed.add_field(name = ".change_down\nalias: [.cd]", value = "`.change_down [user_id] [int X]`\n\nChange a user's downvotes by a given amount. Can be positive or negative.")
 	embed.add_field(name = ".change_up\nalias: [.cu]", value = "`.change_up [user_id] [int X]`\n\nChange a user's upvotes by a given amount. Can be positive or negative.")
+	embed.add_field(name = ".set_score\nalias: [.set]", value = "`.set_score [user_id] [int X]`\n\nSet a user's score to the argument.")
 	embed.add_field(name = ".db", value = "`.db`\n`.db [filename]`\n\nWrite the contents of the entire database. If no arguments are provided, print the db in the python console. Otherwise, create/overwrite the file specified by the first argument.")
 	embed.add_field(name = ".common\nalias: [.tags]", value = "`.common`\n`.tags [danbooru id list]`\n\nFind the common tags of the specified posts. Assumed to be from Danbooru.")
 	embed.add_field(name = ".send_to_channel\nalias: [.send]", value = "`.send [channel_id] \"message to send\"`\n\nSend the message to a channel (from the bot).")
