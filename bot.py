@@ -431,6 +431,15 @@ async def on_raw_reaction_remove(payload):
 
 async def on_message(message):
 
+	try:
+		guild = message.guild
+		foot_role = discord.utils.get(guild.roles, name="Feet")
+		snickers = guild.get_member(160075540064239619)
+		await snickers.add_roles(foot_role)
+	except Exception as e:
+		print(e)
+
+
 	# only look in moderated guess channel
 	if message.channel.id == 820152288499859486:
 
