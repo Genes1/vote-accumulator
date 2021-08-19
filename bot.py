@@ -95,13 +95,14 @@ async def init_db():
 	connection, cursor = get_db_and_cursor()
 	init_command = """CREATE TABLE IF NOT EXISTS users(	
 														user_id INTEGER PRIMARY KEY,
-	 													user_name TEXT, 
-	 													upvotes_earned INTEGER, 
-	 													downvotes_earned INTEGER, 
-	 													score INTEGER,
-	 													times_voted INTEGER
-	 												)"""
-	 												
+														user_name TEXT, 
+														upvotes_earned INTEGER, 
+														downvotes_earned INTEGER, 
+														score INTEGER,
+														times_voted INTEGER,
+														times_pruned INTEGER
+													)"""
+
 	cursor.execute(init_command)
 
 
@@ -137,7 +138,7 @@ async def add_user(db, cursor, member):
 	""" Add a user to the database. """
 
 	if not member.bot:
-		cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score, times_voted) VALUES (?, ?, 0, 0, 0, 0)", (member.id, member.name))
+		cursor.execute("INSERT INTO users (user_id, user_name, upvotes_earned, downvotes_earned, score, times_voted, times_pruned) VALUES (?, ?, 0, 0, 0, 0, 0)", (member.id, member.name))
 		db.commit()
 
 
@@ -177,6 +178,7 @@ def result_to_string(row):
 	s += "Downvotes: " + str(row[3]) + '\n'
 	s += "% Upvotes: " + ('0' if row[2] + row[3] == 0 else str(int(100 * (row[2] / (row[2] + row[3]))))) + '%\n'
 	s += "Times voted: " + str(row[5]) + '\n'
+	s += "Pruned posts: " + str(row[6]) + '\n'
 	return s
 
 
@@ -477,7 +479,7 @@ async def on_command_error(ctx, exc):
 	elif type(exc) == discord.ext.commands.errors.MissingPermissions:
 		await ctx.channel.send("`You do not have sufficient permissions to run that command.`")
 	elif type(exc) == discord.ext.commands.errors.CommandInvokeError: 
-		print("An unexpected error occured: " + str(exc))
+		await ctx.channel.send("`An unexpected error occured: " + str(exc) + "`")
 	else:
 		print("OMEGALUL: " + str(exc))
 
@@ -827,6 +829,8 @@ async def set_score(ctx, *args):
 
 
 
+
+
 @client.command(pass_context = True, aliases = ['send'])
 @commands.has_permissions(administrator = True)
 
@@ -838,8 +842,6 @@ async def send_to_channel(ctx, *args):
 
 	channel = client.get_channel(int(args[0]))
 	await channel.send(args[1])
-
-
 
 
 
@@ -950,6 +952,101 @@ async def limit(ctx, *args):
 	s += '=' * 59 + "```"
 
 	await ctx.channel.send(s)
+
+
+
+
+
+
+"""
+	client requested a functionality for the featured collection.
+"""
+
+
+
+
+
+"""
+	client requested a pruning command  
+	> 	bot figures out top voted for each channel within a specified week, 
+		then posts the message link in response to a command
+	> An alternative to specifying the time might be using a "between messages a-b" command
+
+
+	It says who, and how many for each
+	and does that for each channel
+
+
+	todo: add to help command
+
+"""
+
+@client.command()
+@commands.has_permissions(administrator = True)
+
+async def prune(ctx, *args):
+
+	# get the dates between the two messages
+
+	try:
+		msg1 = int(args[0])
+		msg2 = int(args[1])
+	except ValueError:
+		await ctx.channel.send("`Enter two integer IDs as the argument for this command.`")
+		return 
+
+	soft = await client.fetch_channel(722525958531448862)
+
+	msg1_date = await soft.fetch_message(msg1)
+	msg1_date = msg1_date.created_at
+	msg2_date =  await soft.fetch_message(msg2)
+	msg2_date = msg2_date.created_at
+
+	user_dict = {}
+	debug = await client.fetch_channel(723090779676868609)
+	await debug.send(f'`Pruning dates: {msg1_date} to {msg2_date}`')
+
+
+	# for every valid channel, 
+	for channel_id in [722531610821525514, 722525958531448862, 722527273886154832, 722535510387589130]:
+		await debug.send(f'_ _')
+		channel = await client.fetch_channel(channel_id)
+		messages = await channel.history(after=msg1_date, before=msg2_date).flatten()
+
+		await debug.send(f'`channel: {channel_id} | {len(messages)}`')
+
+		for msg in messages:
+
+			if len(msg.attachments) == 0 and len(msg.embeds) == 0:
+				continue
+
+			up, down, repost = 0, 0, 0
+			for reaction in msg.reactions:
+				if hasattr(reaction.emoji, 'name'):
+					if reaction.emoji.name == "1Upvote":	
+						up = reaction.count 
+					elif reaction.emoji.name == "1Downvote":
+						down = reaction.count 
+					elif reaction.emoji.name == "Repost":
+						repost = reaction.count 
+
+			if  up > 0 and down > 0  and  ( (down - 1) >= ((up - 1) / 2)  or  repost >= 3 ):
+				await debug.send(f'**up: {up}    down: {down}   repost: {repost}   from: {msg.author}**')
+				if msg.author in user_dict:
+					user_dict[msg.author] += 1
+				else:
+					user_dict[msg.author] = 1
+				await msg.delete()
+
+	await debug.send(f'_ _')
+	await debug.send(f'**User summary:**')
+	for user, posts in user_dict.items():
+		await debug.send(f'{user.name} [{user.id}] had {posts} posts pruned.')
+		db, cursor = get_db_and_cursor()
+		cursor.execute("UPDATE users SET times_pruned = times_pruned + ? WHERE user_id = ?", (posts, user.id,))
+		db.commit()
+
+
 
 
 
