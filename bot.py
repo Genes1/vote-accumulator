@@ -1011,7 +1011,7 @@ async def prune(ctx, *args):
 	for channel_id in [722531610821525514, 722525958531448862, 722527273886154832, 722535510387589130]:
 		await debug.send(f'_ _')
 		channel = await client.fetch_channel(channel_id)
-		messages = await channel.history(after=msg1_date, before=msg2_date).flatten()
+		messages = await channel.history(after=msg1_date, before=msg2_date, limit=None).flatten()
 
 		await debug.send(f'`channel: {channel_id} | {len(messages)}`')
 
