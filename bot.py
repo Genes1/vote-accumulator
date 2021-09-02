@@ -1012,6 +1012,7 @@ async def prune(ctx, *args):
 		await debug.send(f'_ _')
 		channel = await client.fetch_channel(channel_id)
 		messages = await channel.history(after=msg1_date, before=msg2_date, limit=None).flatten()
+		top = []
 
 		await debug.send(f'`channel: {channel_id} | {len(messages)}`')
 
@@ -1021,6 +1022,7 @@ async def prune(ctx, *args):
 				continue
 
 			up, down, repost = 0, 0, 0
+			# count up, down, and reposts
 			for reaction in msg.reactions:
 				if hasattr(reaction.emoji, 'name'):
 					if reaction.emoji.name == "1Upvote":	
@@ -1030,6 +1032,7 @@ async def prune(ctx, *args):
 					elif reaction.emoji.name == "Repost":
 						repost = reaction.count 
 
+			# see if post fits criteria for deletion
 			if  up > 0 and down > 0  and  ( (down - 1) >= ((up - 1) / 2)  or  repost >= 3 ):
 				await debug.send(f'**up: {up}    down: {down}   repost: {repost}   from: {msg.author}**')
 				if msg.author in user_dict:
@@ -1037,6 +1040,18 @@ async def prune(ctx, *args):
 				else:
 					user_dict[msg.author] = 1
 				await msg.delete()
+			else:
+				#https://discord.com/channels/719449496962072678/739690626374828074/882808351627563038
+				top.append((f'<https://discord.com/channels/719449496962072678/{channel_id}/{msg.id}>', up))
+		
+		top.sort(key = lambda x: x[1], reverse = True) 
+		await debug.send(f'Top 5 posts (by # upvotes):')
+		count = 0
+		for top_post in top:
+			await debug.send(f'{count}. [{top_post[1]}] {top_post[0]}')
+			count += 1
+			if count > 4:
+				break
 
 	await debug.send(f'_ _')
 	await debug.send(f'**User summary:**')
